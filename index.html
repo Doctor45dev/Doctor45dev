@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Controle Financeiro Compartilhado</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0; background: #f4f4f9; padding: 20px; min-height: 100vh;
+      display: flex; justify-content: center; align-items: flex-start;
+    }
+    #app {
+      max-width: 960px; width: 100%; background: #fff;
+      padding: 20px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    h1, h2 {
+      text-align: center;
+      color: #222;
+    }
+    form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 20px;
+      justify-content: center;
+    }
+    label {
+      width: 100%;
+      max-width: 170px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #333;
+    }
+    input, button, select {
+      padding: 8px 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 1rem;
+      width: 170px;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #007bff;
+      border: none;
+      color: white;
+      cursor: pointer;
+      width: auto;
+      transition: background-color 0.3s ease;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+    .summary {
+      text-align: center;
+      font-size: 1.3rem;
+      padding: 10px;
+      background-color: #e0e7ff;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-weight: 700;
+      color: #1e40af;
+    }
+    .charts {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 30px;
+    }
+    .chart-container {
+      flex: 1 1 280px;
+      background: #fff;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      padding: 15px;
+    }
+    canvas {
+      max-width: 100%;
+      height: 300px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background: #eee;
+    }
+    td.actions {
+      white-space: nowrap;
+      width: 140px;
+      text-align: center;
+    }
+    td.actions button {
+      margin: 0 2px;
+      padding: 5px 8px;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      cursor: pointer;
+      background-color: #3a86ff;
+      border: none;
+      color: white;
+      transition: background-color 0.2s ease;
+    }
+    td.actions button:hover {
+      background-color: #265ecf;
+    }
+    td.actions button.delete {
+      background-color: #ff595e;
+    }
+    td.actions button.delete:hover {
+      background-color: #cc494d;
+    }
+    @media(max-width: 600px) {
+      form label, input, select {
+        max-width: 100%;
+        width: 100%;
+      }
+      td.actions {
+        width: auto;
+        white-space: normal;
+      }
+      td.actions button {
+        margin-bottom: 5px;
+        width: 100%;
+      }
+    }
+  </style>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+  <!-- SheetJS -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <h1>Controle Financeiro Compartilhado</h1>
+
+    <form id="entry-form" aria-label="Formulário para adicionar ou editar vendas e gastos">
+      <input type="hidden" id="doc-id" />
+      <div>
+        <label for="type">Tipo</label>
+        <select id="type" required>
+          <option value="sale">Venda</option>
+          <option value="expense">Gasto</option>
+        </select>
+      </div>
+      <div>
+        <label for="name">Nome</label>
+        <input type="text" id="name" placeholder="Nome do item" required />
+      </div>
+      <div>
+        <label for="amount">Valor (R$)</label>
+        <input type="number" id="amount" min="0.01" step="0.01" placeholder="0.00" required />
+      </div>
+      <div>
+        <label for="date">Data</label>
+        <input type="date" id="date" required />
+      </div>
+      <div style="display:flex; align-items:flex-end;">
+        <button type="submit" id="submit-btn">Adicionar</button>
+        <button type="button" id="cancel-btn" style="display:none; margin-left:10px;">Cancelar Edição</button>
+      </div>
+    </form>
+
+    <div class="summary" aria-live="polite" aria-atomic="true">
+      <div><strong>Total Vendas:</strong> R$ <span id="total-sales">0.00</span></div>
+      <div><strong>Total Gastos:</strong> R$ <span id="total-expenses">0.00</span></div>
+      <div><strong>Lucro:</strong> R$ <span id="profit">0.00</span></div>
+    </div>
+
+    <button id="export-btn" aria-label="Exportar dados para planilha Excel">Exportar para Excel</button>
+
+    <h2>Registros</h2>
+    <table aria-label="Lista de vendas e gastos">
+      <thead>
+        <tr><th>Tipo</th><th>Nome</th><th>Valor (R$)</th><th>Data</th><th>Ações</th></tr>
+      </thead>
+      <tbody id="records-tbody"></tbody>
+    </table>
+
+    <div class="charts">
+      <div class="chart-container" aria-label="Gráfico de vendas e gastos por dia">
+        <h2>Por Dia</h2>
+        <canvas id="chart-day" role="img" aria-label="Gráfico de barras de vendas e gastos por dia"></canvas>
+      </div>
+      <div class="chart-container" aria-label="Gráfico de vendas e gastos por semana">
+        <h2>Por Semana</h2>
+        <canvas id="chart-week" role="img" aria-label="Gráfico de barras de vendas e gastos por semana"></canvas>
+      </div>
+      <div class="chart-container" aria-label="Gráfico de vendas e gastos por mês">
+        <h2>Por Mês</h2>
+        <canvas id="chart-month" role="img" aria-label="Gráfico de barras de vendas e gastos por mês"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      // Inicialize seu Firebase aqui - substitua pelas suas configurações
+      const firebaseConfig = {
+      apiKey: "AIzaSyC-hndzciAZZhImPqckKp42dmhFTOsmGOU",
+      authDomain: "chatprivado-dbcef.firebaseapp.com",
+      projectId: "chatprivado-dbcef",
+      storageBucket: "chatprivado-dbcef.firebasestorage.app",
+      messagingSenderId: "658327629128",
+      appId: "1:658327629128:web:b0fe98390a8b9c2d2ed77d"
+      };
+
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.firestore();
+
+      // Elementos UI
+      const form = document.getElementById('entry-form');
+      const docIdInput = document.getElementById('doc-id');
+      const typeInput = document.getElementById('type');
+      const nameInput = document.getElementById('name');
+      const amountInput = document.getElementById('amount');
+      const dateInput = document.getElementById('date');
+      const submitBtn = document.getElementById('submit-btn');
+      const cancelBtn = document.getElementById('cancel-btn');
+
+      const totalSalesEl = document.getElementById('total-sales');
+      const totalExpensesEl = document.getElementById('total-expenses');
+      const profitEl = document.getElementById('profit');
+
+      const exportBtn = document.getElementById('export-btn');
+      const recordsTbody = document.getElementById('records-tbody');
+
+      // Charts
+      let chartDay, chartWeek, chartMonth;
+
+      dateInput.valueAsDate = new Date();
+
+      let data = []; // dados cache local
+
+      // Funções utilitárias
+
+      function formatCurrency(num) {
+        return num.toFixed(2);
+      }
+
+      function formatDate(date) {
+        const dt = new Date(date);
+        return dt.toISOString().slice(0,10);
+      }
+
+      // Agrupa dados para gráficos
+      function groupByPeriod(records, period) {
+        const map = new Map();
+
+        records.forEach(({type, name, amount, date}) => {
+          let key = '';
+          const dt = new Date(date);
+          switch(period) {
+            case 'day':
+              key = dt.toISOString().slice(0,10);
+              break;
+            case 'week': {
+              const dayNum = dt.getUTCDay() || 7;
+              const thursday = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate() + 4 - dayNum));
+              const yearStart = new Date(Date.UTC(thursday.getUTCFullYear(),0,1));
+              const weekNum = Math.ceil((((thursday - yearStart) / 86400000) + 1)/7);
+              key = `${thursday.getUTCFullYear()}-W${weekNum.toString().padStart(2,'0')}`;
+              break;
+            }
+            case 'month':
+              key = dt.getUTCFullYear() + '-' + (dt.getUTCMonth()+1).toString().padStart(2,'0');
+              break;
+          }
+          const val = map.get(key) || {sale: 0, expense: 0};
+          if(type === 'sale') val.sale += amount;
+          else if(type === 'expense') val.expense += amount;
+          map.set(key,val);
+        });
+
+        const sortedKeys = [...map.keys()].sort();
+        return sortedKeys.map(key => ({
+          period: key,
+          sale: map.get(key).sale,
+          expense: map.get(key).expense,
+        }));
+      }
+
+      // Atualiza resumo
+      function updateSummary(records) {
+        const totalSales = records.filter(r => r.type === 'sale').reduce((acc, v) => acc + v.amount, 0);
+        const totalExpenses = records.filter(r => r.type === 'expense').reduce((acc, v) => acc + v.amount, 0);
+        const profit = totalSales - totalExpenses;
+
+        totalSalesEl.textContent = formatCurrency(totalSales);
+        totalExpensesEl.textContent = formatCurrency(totalExpenses);
+        profitEl.textContent = formatCurrency(profit);
+      }
+
+      // Atualiza tabela de registros com botões editar/excluir
+      function updateRecordsTable(records) {
+        recordsTbody.innerHTML = '';
+        records.forEach(({id, type, name, amount, date}) => {
+          const tr = document.createElement('tr');
+
+          const tdType = document.createElement('td');
+          tdType.textContent = type === 'sale' ? 'Venda' : 'Gasto';
+          tr.appendChild(tdType);
+
+          const tdName = document.createElement('td');
+          tdName.textContent = name;
+          tr.appendChild(tdName);
+
+          const tdAmount = document.createElement('td');
+          tdAmount.textContent = formatCurrency(amount);
+          tr.appendChild(tdAmount);
+
+          const tdDate = document.createElement('td');
+          tdDate.textContent = formatDate(date);
+          tr.appendChild(tdDate);
+
+          const tdActions = document.createElement('td');
+          tdActions.className = 'actions';
+
+          const btnEdit = document.createElement('button');
+          btnEdit.textContent = 'Editar';
+          btnEdit.title = 'Editar registro';
+          btnEdit.addEventListener('click', () => editRecord(id));
+          tdActions.appendChild(btnEdit);
+
+          const btnDelete = document.createElement('button');
+          btnDelete.textContent = 'Excluir';
+          btnDelete.title = 'Excluir registro';
+          btnDelete.className = 'delete';
+          btnDelete.addEventListener('click', () => deleteRecord(id));
+          tdActions.appendChild(btnDelete);
+
+          tr.appendChild(tdActions);
+
+          recordsTbody.appendChild(tr);
+        });
+      }
+
+      // Atualiza gráficos
+      function updateCharts(records) {
+        const dayData = groupByPeriod(records, 'day');
+        const weekData = groupByPeriod(records, 'week');
+        const monthData = groupByPeriod(records, 'month');
+
+        function prepareChartData(grouped) {
+          return {
+            labels: grouped.map(g => g.period),
+            salesData: grouped.map(g => g.sale),
+            expensesData: grouped.map(g => g.expense)
+          };
+        }
+
+        const dayChartData = prepareChartData(dayData);
+        const weekChartData = prepareChartData(weekData);
+        const monthChartData = prepareChartData(monthData);
+
+        function createChart(ctx, labels, salesData, expensesData, title) {
+          return new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels,
+              datasets: [
+                {
+                  label: 'Vendas',
+                  data: salesData,
+                  backgroundColor: 'rgba(54,162,235,0.7)'
+                },
+                {
+                  label: 'Gastos',
+                  data: expensesData,
+                  backgroundColor: 'rgba(255,99,132,0.7)'
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                title: { display: true, text: title },
+                legend: { position: 'top' }
+              },
+              scales: {
+                y: { beginAtZero: true }
+              }
+            }
+          });
+        }
+
+        // Destrói gráficos anteriores antes de criar
+        if(chartDay) chartDay.destroy();
+        if(chartWeek) chartWeek.destroy();
+        if(chartMonth) chartMonth.destroy();
+
+        chartDay = createChart(document.getElementById('chart-day').getContext('2d'), dayChartData.labels, dayChartData.salesData, dayChartData.expensesData, 'Por Dia');
+        chartWeek = createChart(document.getElementById('chart-week').getContext('2d'), weekChartData.labels, weekChartData.salesData, weekChartData.expensesData, 'Por Semana');
+        chartMonth = createChart(document.getElementById('chart-month').getContext('2d'), monthChartData.labels, monthChartData.salesData, monthChartData.expensesData, 'Por Mês');
+      }
+
+      // Controla edição
+      function editRecord(id) {
+        const record = data.find(item => item.id === id);
+        if(!record) return alert('Registro não encontrado');
+
+        docIdInput.value = record.id;
+        typeInput.value = record.type;
+        nameInput.value = record.name;
+        amountInput.value = record.amount.toFixed(2);
+        dateInput.value = formatDate(record.date);
+
+        submitBtn.textContent = 'Salvar Alteração';
+        cancelBtn.style.display = 'inline-block';
+      }
+
+      // Cancela edição
+      cancelBtn.addEventListener('click', () => {
+        resetForm();
+      });
+
+      function resetForm() {
+        docIdInput.value = '';
+        typeInput.value = 'sale';
+        nameInput.value = '';
+        amountInput.value = '';
+        dateInput.valueAsDate = new Date();
+        submitBtn.textContent = 'Adicionar';
+        cancelBtn.style.display = 'none';
+      }
+
+      // Excluir registro
+      async function deleteRecord(id){
+        if(!confirm('Quer mesmo excluir esse registro?')) return;
+        try {
+          await db.collection('records').doc(id).delete();
+        } catch(e) {
+          alert('Erro ao excluir: ' + e.message);
+        }
+      }
+
+      // Salvar ou atualizar registro
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+
+        const id = docIdInput.value;
+        const type = typeInput.value;
+        const name = nameInput.value.trim();
+        const amountRaw = amountInput.value.trim();
+        const amount = parseFloat(amountRaw);
+        const date = dateInput.value;
+
+        // Validações básicas
+        if(!name) return alert('Nome obrigatório');
+        if(isNaN(amount) || amount <= 0) return alert('Valor válido obrigatório');
+        if(!date) return alert('Data obrigatória');
+
+        try {
+          if(id) {
+            // atualizar
+            await db.collection('records').doc(id).update({
+              type, name, amount, date
+            });
+            alert('Registro atualizado!');
+          } else {
+            // novo registro
+            await db.collection('records').add({
+              type, name, amount, date
+            });
+            alert('Registro adicionado!');
+          }
+          resetForm();
+        } catch(e) {
+          alert('Erro ao salvar: ' + e.message);
+        }
+      });
+
+      // Exporta dados para Excel
+      exportBtn.addEventListener('click', () => {
+        if(data.length === 0) {
+          alert('Nenhum dado para exportar.');
+          return;
+        }
+        const wb = XLSX.utils.book_new();
+        const saleData = data.filter(d => d.type === 'sale').map(d => ({Tipo:'Venda', Nome:d.name, Valor:d.amount, Data:d.date}));
+        const expenseData = data.filter(d => d.type === 'expense').map(d => ({Tipo:'Gasto', Nome:d.name, Valor:d.amount, Data:d.date}));
+
+        const allData = [...saleData, ...expenseData];
+
+        const ws = XLSX.utils.json_to_sheet(allData);
+        XLSX.utils.book_append_sheet(wb, ws, 'Dados');
+
+        // Resumo
+        const totalSales = saleData.reduce((acc,v) => acc + v.Valor, 0);
+        const totalExpenses = expenseData.reduce((acc,v) => acc + v.Valor,0);
+        const profit = totalSales - totalExpenses;
+        const wsSummary = XLSX.utils.json_to_sheet([{ 'Total Vendas': totalSales.toFixed(2), 'Total Gastos': totalExpenses.toFixed(2), 'Lucro': profit.toFixed(2)}]);
+        XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumo');
+
+        const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+        const blob = new Blob([wbout], {type:"application/octet-stream"});
+
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'financeiro_compartilhado.xlsx';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      });
+
+      // Escuta em tempo real Firestore
+      db.collection('records').orderBy('date', 'desc').onSnapshot(snapshot => {
+        data = [];
+        snapshot.forEach(doc => {
+          data.push({id: doc.id, ...doc.data()});
+        });
+        updateSummary(data);
+        updateRecordsTable(data);
+        updateCharts(data);
+      });
+
+    })();
+  </script>
+</body>
+</html>
+
